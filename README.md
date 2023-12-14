@@ -68,16 +68,12 @@ See [model_signing/README.md](model_signing/README.md) for more information.
 
 ### SLSA for ML
 
-This project shows how we can use the [SLSA L3 GitHub generator][slsa-generator]
-to generate SLSA provenance for ML models. The SLSA generator was originally
-developed for traditional software to protect against tampering with builds,
-such as in the [Solarwinds attack][solarwinds], and this project is a proof of
-concept that the same supply chain protections can be applied to ML.
+This project shows how we can generate [SLSA][slsa] provenance for ML models.
 
-While most of the ML models are currently too expensive to train using the SLSA
-generator on GitHub Actions, future work will cover the training of ML models
-that require access to accelerators (i.e., GPUs, TPUs) or that require multiple
-hours for training.
+SLSA was originally developed for traditional software to protect against
+tampering with builds, such as in the [Solarwinds attack][solarwinds], and
+this project is a proof of concept that the same supply chain protections
+can be applied to ML.
 
 See [slsa_for_models/README.md](slsa_for_models/README.md) for more information.
 
@@ -91,6 +87,7 @@ used in any production environment.
 
 Please see the [Contributor Guide](CONTRIBUTING.md) for more information.
 
+[slsa]: https://slsa.dev/
 [saif]: https://blog.google/technology/safety-security/introducing-googles-secure-ai-framework/
 [openssf]: https://openssf.org/
 [slsa-generator]: https://github.com/slsa-framework/slsa-github-generator
