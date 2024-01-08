@@ -1,34 +1,29 @@
 # SLSA for Models
 
-This project shows how we can use the [SLSA L3 GitHub generator][slsa-generator]
-to generate SLSA provenance for ML models. The SLSA generator was originally
-developed for traditional software to protect against tampering with builds,
-such as in the [Solarwinds attack][solarwinds], and this project is a proof of
-concept that the _same supply chain protections can be applied to ML_.
+This project shows how we can generate [SLSA][slsa] provenance for ML models
+on [GitHub Actions][gha] and [Google Cloud Platform][gcp].
 
-Future work will involve covering training ML models that require access to
-accelerators (i.e., GPUs, TPUs) or that require multiple hours for training. As
-an example, we could use [Tekton Chains][tekton-chains] to support [training ML
-models using Kubeflow][tekton-kubeflow].
+SLSA was originally developed for traditional software to protect against
+tampering with builds, such as in the [Solarwinds attack][solarwinds], and
+this project is a proof of concept that the _same supply chain protections
+can be applied to ML_.
 
-When users download a given version of a model they can also check its
-provenance by using [the SLSA verifier][slsa-verifier] repository. This can be
-integrated in the model hub and/or model serving platforms: for example the
-model serving pipeline could validate provenance for all new models before
-serving them. However, the verification can also be done manually, on demand, as
-we will do by the end of this README.
+When users download a given version of a model they can also check its provenance.
+This can be integrated in the model hub and/or model serving platforms: for example
+the model serving pipeline could validate provenance for all new models before
+serving them. However, the verification can also be done manually, on demand.
 
 As an additional benefit, having provenance for a model allows users to react
 to vulnerabilities in a training framework: they can quickly determine if a
 model needs to be retrained because it was created using a vulnerable version.
 
-## Usage
+See the guides for [GitHub Actions][gha] and [Google Cloud Platform][gcp] for details.
+
+## Models
 
 We support both TensorFlow and PyTorch models. The example repo trains a model
 on [CIFAR10][cifar10] dataset, saves it in one of the supported formats, and
-generates provenance for the output. All of this happens during a [GitHub Actions
-workflow][workflow] which takes as input the format to save the model into. The
-supported formats are:
+generates provenance for the output. The supported formats are:
 
 | Workflow Argument            | Training Framework | Model format                    |
 |------------------------------|--------------------|---------------------------------|
@@ -39,40 +34,24 @@ supported formats are:
 | `pytorch_full_model.pth`     | PyTorch            | PyTorch complete model format   |
 | `pytorch_jitted_model.pt`    | PyTorch            | PyTorch TorchScript format      |
 
-To test, fork this repository, then head over to the Actions tab and select the
-"SLSA for ML models example" workflow. Since the workflow has a
-`workflow_dispatch` trigger, it can be invoked on demand: click the `Run
-workflow` button, then select the value for the "Name of the model" argument.
+While most of the ML models are currently too expensive to train, future work will
+cover the training of ML models that require access to accelerators (i.e., GPUs, TPUs)
+or that require multiple hours for training.
 
-![Triggering a SLSA workflow](images/slsa_trigger.png)
+## Future Work
 
-After the workflow finishes execution, there will be two archives in the
-"Artifacts" section: one is the model that was trained and the other one is the
-SLSA provenance attached to the model.
+### Accelerators
+Future work will involve covering training ML models that require access to
+accelerators (i.e., GPUs, TPUs) or that require multiple hours for training. As
+an example, we could use [Tekton Chains][tekton-chains] to support [training ML
+models using Kubeflow][tekton-kubeflow].
 
-![Results of running a SLSA workflow](images/slsa_results.png)
+### Platforms
+While this example has targeted GitHub Actions and Tekton in GCP, we aim to bring
+support for other platforms (e.g., GCB and GitLab) and model training environments.
 
-To verify the provenance, download both archives, unzip each and then run
-`slsa-verifier`, making sure to replace the `--source-uri` argument with the
-_path to your fork_. For example, for a PyTorch model, which has been [built on
-this repository](https://github.com/google/model-transparency/actions/runs/6646816974):
-
-```console
-[...]$ slsa-verifier verify-artifact \
-       --provenance-path pytorch_model.pth.intoto.jsonl \
-       --source-uri github.com/google/model-transparency \
-       pytorch_model.pth
-Verified signature against tlog entry index 45419124 at URL: https://rekor.sigstore.dev/api/v1/log/entries/24296fb24b8ad77a98dd03d23a78657e7f1efd3d9bea6988abbf23a72290a4ec7dc35c9edeab7ee1
-Verified build using builder "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v1.9.0" at commit ac26cbf66849cfec6f29747f4525180595c7eef0
-Verifying artifact pytorch_model.pth: PASSED
-
-PASSED: Verified SLSA provenance
-```
-
-The verification of provenance can be done just before the model gets loaded in the
-serving pipeline.
-
-**Note**: TensorFlow also supports saving models in `SavedModel` format. This is
+### Directory Format
+TensorFlow also supports saving models in `SavedModel` format. This is
 a directory-based serialization format and currently we don't fully support
 this. We can generate SLSA provenance for all the files in the directory but
 there are caveats regarding verification. Furthermore, because there is a
@@ -80,9 +59,6 @@ difference between the hashes generated by provenance and the hash generated
 during model signing, we have decided to add support for these model formats at
 a future time, after standardizing a way to generate and verify provenance in
 SLSA (in general, not just for ML).
-
-While this example has targeted GitHub Actions, we aim to bring support
-for other platforms (e.g., GCB and GitLab) and model training environments.
 
 [cifar10]: https://www.cs.toronto.edu/~kriz/cifar.html
 [slsa-generator]: https://github.com/slsa-framework/slsa-github-generator
@@ -92,3 +68,5 @@ for other platforms (e.g., GCB and GitLab) and model training environments.
 [tekton-chains]: https://github.com/tektoncd/chains
 [tekton-kubeflow]: https://www.kubeflow.org/docs/components/pipelines/v1/sdk/pipelines-with-tekton/
 [workflow]: https://github.com/google/model-transparency/blob/main/.github/workflows/slsa_for_ml.yml
+[gha]: github_actions
+[gcp]: gcp

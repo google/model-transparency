@@ -1,0 +1,91 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: slsa-for-models
+spec:
+  workspaces:
+    - name: shared
+  params:
+    - name: tool-versions
+      properties:
+        python: {}
+        gcloud: {}
+      default:
+        python: '3.11'
+        gcloud: 'slim'
+    - name: model-source
+      properties:
+        url: {}
+        revision: {}
+        requirements-path: {}
+        main-path: {}
+      default:
+        url: 'https://github.com/google/model-transparency'
+        revision: 'main'
+        requirements-path: 'slsa_for_models/install/requirements.txt'
+        main-path: 'slsa_for_models/main.py'
+    - name: model-name
+      enum:
+        - 'tensorflow_model.keras'
+        - 'tensorflow_hdf5_model.h5'
+        - 'tensorflow_hdf5.weights.h5'
+        - 'pytorch_model.pth'
+        - 'pytorch_full_model.pth'
+        - 'pytorch_jitted_model.pt'
+    - name: model-storage
+      properties:
+        package: {}
+        location: {}
+        repository: {}
+  results:
+    - name: source_ARTIFACT_INPUTS
+      value: $(tasks.git-clone.results.source_ARTIFACT_INPUTS[*])
+    - name: model_ARTIFACT_OUTPUTS
+      value: $(tasks.upload-model.results.model_ARTIFACT_OUTPUTS[*])
+  tasks:
+    - name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared
+      params:
+        - name: url
+          value: $(params.model-source.url)
+        - name: revision
+          value: $(params.model-source.revision)
+      taskRef:
+        name: git-clone
+    - name: build-model
+      runAfter:
+        - git-clone
+      workspaces:
+        - name: source
+          workspace: shared
+      params:
+        - name: model-name
+          value: $(params.model-name)
+        - name: model-source
+          value:
+            requirements-path: $(params.model-source.requirements-path)
+            main-path: $(params.model-source.main-path)
+        - name: python-version
+          value: $(params.tool-versions.python)
+      taskRef:
+        name: build-model
+    - name: upload-model
+      runAfter:
+        - build-model
+      workspaces:
+        - name: shared
+      params:
+        - name: config
+          value:
+            package: $(params.model-storage.package)
+            version: $(tasks.build-model.results.digest)
+            source: $(params.model-name)
+            location: $(params.model-storage.location)
+            repository: $(params.model-storage.repository)
+        - name: tool-versions
+          value:
+            gcloud: $(params.tool-versions.gcloud)
+      taskRef:
+        name: upload-model

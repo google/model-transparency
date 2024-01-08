@@ -1,0 +1,62 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: upload-model
+spec:
+  workspaces:
+    - name: shared
+  params:
+    - name: tool-versions
+      properties:
+        gcloud: { }
+      default:
+        gcloud: 'slim'
+    - name: config
+      properties:
+        package: {}
+        version: {}
+        source: {}
+        location: {}
+        repository: {}
+  results:
+    - name: output
+    - name: json
+    - name: model_ARTIFACT_OUTPUTS
+      properties:
+        uri: {}
+        digest: {}
+  steps:
+    - name: upload-to-generic-repo
+      image: gcr.io/google.com/cloudsdktool/cloud-sdk:$(params.tool-versions.gcloud)
+      workingDir: $(workspaces.shared.path)
+      script: |
+        gcloud $@
+      args:
+        - artifacts
+        - generic
+        - upload
+        - --package=$(params.config.package)
+        - --version=$(params.config.version)
+        - --source=$(params.config.source)
+        - --location=$(params.config.location)
+        - --repository=$(params.config.repository)
+      stdoutConfig:
+        path: $(results.output.path)
+    - name: convert-to-json
+      image: docker.io/stedolan/jq@sha256:a61ed0bca213081b64be94c5e1b402ea58bc549f457c2682a86704dd55231e09
+      script: |
+        jq -R -n -c '[inputs|split(": ")|{(.[0]):.[1]}] | add' $(results.output.path)
+      stdoutConfig:
+        path: $(results.json.path)
+    - name: type-hint
+      image: docker.io/stedolan/jq@sha256:a61ed0bca213081b64be94c5e1b402ea58bc549f457c2682a86704dd55231e09
+      script: |        
+        FULL=$(cat $(results.json.path) | jq -rj '.name')
+        URI=$(echo $FULL | cut -d ":" -f 1)
+        DIGEST=$(echo $FULL | cut -d ":" -f 2)
+        cat <<EOF | tee $(results.model_ARTIFACT_OUTPUTS.path)
+        {
+          "uri": "${URI}",
+          "digest": "sha256:${DIGEST}"
+        }
+        EOF

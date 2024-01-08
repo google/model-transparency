@@ -1,0 +1,24 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: slsa-for-models-
+spec:
+  params:
+    - name: model-name
+      value: 'pytorch_model.pth'
+    - name: model-storage
+      value:
+        package: 'pytorch-model'
+        location: 'us'
+        repository: 'ml-artifacts'
+  pipelineRef:
+    name: slsa-for-models
+  workspaces:
+    - name: shared
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi

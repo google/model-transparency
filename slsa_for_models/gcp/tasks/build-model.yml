@@ -1,0 +1,41 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-model
+spec:
+  workspaces:
+    - name: source
+  params:
+    - name: tool-versions
+      properties:
+        python: { }
+        bash: { }
+      default:
+        python: '3.11'
+        bash: 'latest'
+    - name: model-source
+      properties:
+        requirements-path: {}
+        main-path: {}
+    - name: model-name
+      enum:
+        - 'tensorflow_model.keras'
+        - 'tensorflow_hdf5_model.h5'
+        - 'tensorflow_hdf5.weights.h5'
+        - 'pytorch_model.pth'
+        - 'pytorch_full_model.pth'
+        - 'pytorch_jitted_model.pt'
+  results:
+    - name: digest
+  steps:
+    - name: run-script
+      image: docker.io/python:$(params.tool-versions.python)
+      workingDir: $(workspaces.source.path)
+      script: |
+        python -m pip install --require-hashes -r $(params.model-source.requirements-path)
+        python $(params.model-source.main-path) $(params.model-name)
+    - name: compute-digest
+      image: bash:$(params.tool-versions.bash)
+      workingDir: $(workspaces.source.path)
+      script:
+        sha256sum $(params.model-name) | awk '{print $1}' | tr -d '\n' | tee $(results.digest.path)
