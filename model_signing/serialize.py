@@ -340,7 +340,7 @@ class Serializer:
         # Only files are recorded.
         if ty != "file":
             raise ValueError(f"internal: got a non-file path {name}")
-        
+    
         return Hasher._node_file_compute_v1(name,
                                             b'', start_pos, end_pos, chunk)
 
@@ -369,6 +369,7 @@ class Serializer:
         if prev_i < len(task_info):
             h = hashlib.sha256(bytes(all_hashes[prev_i:])).digest()
             paths += [PathMetadata(prev_name, Hashed(DigestAlgorithm.SHA256_P1, h))]
+        # TODO: Test this function properly.
         # paths += [PathMetadata("path/to/file1", Hashed(DigestAlgorithm.SHA256_P1, b'\abcdef1'))]
         # paths += [PathMetadata("path/to/file2", Hashed(DigestAlgorithm.SHA256_P1, b'\abcdef2'))]
         return paths
