@@ -340,7 +340,7 @@ class Serializer:
         # Only files are recorded.
         if ty != "file":
             raise ValueError(f"internal: got a non-file path {name}")
-    
+
         return Hasher._node_file_compute_v1(name,
                                             b'', start_pos, end_pos, chunk)
 
@@ -366,7 +366,7 @@ class Serializer:
             prev_name = curr_name
 
         # Compute the digest for the last (unfinished) task.
-        if prev_i < len(task_info):
+        if prev_i < len(task_info) - 1:
             h = hashlib.sha256(bytes(all_hashes[prev_i:])).digest()
             paths += [PathMetadata(prev_name, Hashed(DigestAlgorithm.SHA256_P1, h))]
         # TODO: Test this function properly.
