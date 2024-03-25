@@ -19,6 +19,9 @@ from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_start_method, set_start_method
 from pathlib import Path
 import platform
+from typing import Callable
+
+from _manifest import PathMetadata, DigestAlgorithm, Hashed
 
 # Use for testing while keeping disk size low.
 allow_symlinks = False
@@ -111,7 +114,7 @@ def remove_prefix(text, prefix):
     return text
 
 
-def validate_signature_path(model_path: Path, sig_path: Path):
+def _validate_signature_path(model_path: Path, sig_path: Path):
     if model_path.is_file():
         return
     # Note: Only allow top-level folder to have the signature for simplicity.
@@ -131,7 +134,7 @@ def is_relative_to(p: Path, path_list: [Path]) -> bool:
 class Serializer:
     @staticmethod
     # TODO: type of returned value.
-    def _ordered_files(path: Path, ignorepaths: [Path]) -> []:
+    def _ordered_files(path: Path, ignorepaths: [Path], ignore_folder: bool = False) -> []:
         children: [Path]
         if path.is_file():
             children = [path]
@@ -158,6 +161,9 @@ class Serializer:
 
             if not child.is_file() and not child.is_dir():
                 raise ValueError(f"{str(child)} is not a dir or file")
+            
+            if ignore_folder and child.is_dir():
+                continue
 
             # The recorded path must *not* contains the folder name,
             # since users may rename it.
@@ -226,7 +232,7 @@ class Serializer:
 
     @staticmethod
     # TODO: type of tasks
-    def _run_tasks(path: Path, chunk: int, tasks: []) -> bytes:
+    def _run_tasks(path: Path, chunk: int, tasks: [], fn: Callable[[], bytes]) -> bytes:
         # See https://superfastpython.com/processpoolexecutor-in-python/
         # NOTE: 32 = length of sha256 digest.
         digest_len = 32
@@ -237,7 +243,7 @@ class Serializer:
         if platform.system() == "Linux" and get_start_method() != "fork":
             set_start_method('fork')
         with ProcessPoolExecutor() as ppe:
-            futures = [ppe.submit(Serializer.task, (path, chunk, task))
+            futures = [ppe.submit(fn, (path, chunk, task))
                        for task in tasks]
             results = [f.result() for f in futures]
             for i, result in enumerate(results):
@@ -249,7 +255,7 @@ class Serializer:
 
     @staticmethod
     # TODO: type of task_info.
-    def task(task_info: []):
+    def _task_v1(task_info: any) -> bytes:
         # NOTE: we can get process info using:
         # from multiprocessing import current_process
         # worker = current_process()
@@ -303,7 +309,7 @@ class Serializer:
             raise ValueError(f"{str(path)} is not a dir or file")
 
         # Validate the signature path.
-        validate_signature_path(path, signature_path)
+        _validate_signature_path(path, signature_path)
 
         # Children to hash.
         children = Serializer._ordered_files(path,
@@ -317,10 +323,101 @@ class Serializer:
         # Share the computation of hashes.
         # For simplicity, we pre-allocate the entire array that will hold
         # the concatenation of all hashes.
-        all_hashes = Serializer._run_tasks(path, chunk, tasks)
+        all_hashes = Serializer._run_tasks(path, chunk, tasks, Serializer._task_v1)
 
         # Finally, we hash everything.
         return hashlib.sha256(bytes(all_hashes)).digest()
+
+    @staticmethod
+    # TODO: type of task_info.
+    def _task_v2(task_info: any) -> bytes:
+        # NOTE: we can get process info using:
+        # from multiprocessing import current_process
+        # worker = current_process()
+        # print(f'Task {task_info},
+        # worker name={worker.name}, pid={worker.pid}', flush=True)
+        _, chunk, (name, ty, start_pos, end_pos) = task_info
+        # Only files are recorded.
+        if ty != "file":
+            raise ValueError(f"internal: got a non-file path {name}")
+
+        return Hasher._node_file_compute_v1(name,
+                                            b'', start_pos, end_pos, chunk)
+
+    @staticmethod
+    def _to_path_metadata(task_info: [any], all_hashes: bytes) -> [PathMetadata]:
+        if not task_info:
+            raise ValueError("internal: task_info is empty")
+
+        paths: [PathMetadata] = []
+        # Iterate over all tasks.
+        prev_task = task_info[0]
+        prev_i = 0
+        prev_name, _, _, _ = prev_task
+        for curr_i, curr_task in enumerate(task_info[1:]):
+            curr_name, _, _, _ = curr_task
+            if prev_name == curr_name:
+                continue
+            # End of a group of sharded digests for the same file.
+            # NOTE: each digest is 32-byte long.
+            h = hashlib.sha256(bytes(all_hashes[prev_i: curr_i+32])).digest()
+            paths += [PathMetadata(prev_name, Hashed(DigestAlgorithm.SHA256_P1, h))]
+            prev_i = curr_i
+            prev_name = curr_name
+
+        # Compute the digest for the last (unfinished) task.
+        if prev_i < len(task_info) - 1:
+            h = hashlib.sha256(bytes(all_hashes[prev_i:])).digest()
+            paths += [PathMetadata(prev_name, Hashed(DigestAlgorithm.SHA256_P1, h))]
+        # TODO: Test this function properly.
+        # paths += [PathMetadata("path/to/file1", Hashed(DigestAlgorithm.SHA256_P1, b'\abcdef1'))]
+        # paths += [PathMetadata("path/to/file2", Hashed(DigestAlgorithm.SHA256_P1, b'\abcdef2'))]
+        return paths
+
+    @staticmethod
+    def _serialize_v2(path: Path, chunk: int, shard: int, signature_path: Path,
+                      ignorepaths: [Path] = []) -> bytes:
+        if not path.exists():
+            raise ValueError(f"{str(path)} does not exist")
+
+        if not allow_symlinks and path.is_symlink():
+            raise ValueError(f"{str(path)} is a symlink")
+
+        if chunk < 0:
+            raise ValueError(f"{str(chunk)} is invalid")
+
+        if not path.is_file() and not path.is_dir():
+            raise ValueError(f"{str(path)} is not a dir or file")
+
+        # Validate the signature path.
+        _validate_signature_path(path, signature_path)
+
+        # Children to hash.
+        children = Serializer._ordered_files(path,
+                                             [signature_path] + ignorepaths,
+                                             True)
+
+        # We shard the computation by creating independent "tasks".
+        if shard < 0:
+            raise ValueError(f"{str(shard)} is invalid")
+        tasks = Serializer._create_tasks(children, shard)
+
+        # Share the computation of hashes.
+        # For simplicity, we pre-allocate the entire array that will hold
+        # the concatenation of all hashes.
+        all_hashes = Serializer._run_tasks(path, chunk, tasks, Serializer._task_v2)
+
+        # Turn hashes into PathMedata
+        return Serializer._to_path_metadata(tasks, all_hashes)
+
+    def serialize_v2(path: Path, chunk: int, signature_path: Path,
+                     ignorepaths: [Path] = []) -> [PathMetadata]:
+        # NOTE: The shard size must be the same for all clients for
+        # compatibility. We could make it configurable; but in this
+        # case the signature file must contain the value used by the signer.
+        shard_size = 1000000000  # 1GB
+        return Serializer._serialize_v2(path, chunk, shard_size,
+                                        signature_path, ignorepaths)
 
     def serialize_v1(path: Path, chunk: int, signature_path: Path,
                      ignorepaths: [Path] = []) -> bytes:
@@ -350,7 +447,7 @@ class Serializer:
             raise ValueError(f"{str(path)} is not a dir")
 
         # Validate the signature path.
-        validate_signature_path(path, signature_path)
+        _validate_signature_path(path, signature_path)
 
         children = sorted([x for x in path.iterdir()
                            if x != signature_path and x not in ignorepaths])

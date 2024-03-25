@@ -40,6 +40,7 @@ from serialize import Serializer
 import psutil
 import sys
 
+from _manifest import Manifest
 
 def chunk_size() -> int:
     return int(psutil.virtual_memory().available // 2)
@@ -105,12 +106,13 @@ class SigstoreSigner():
                   file=sys.stderr)
             print(f"identity: {oidc_token.identity}", file=sys.stderr)
 
-            contentio = io.BytesIO(Serializer.serialize_v1(
-                inputfn, chunk_size(), signaturefn, ignorepaths))
+            serialized_paths = Serializer.serialize_v2(
+                inputfn, chunk_size(), signaturefn, ignorepaths)
             with self.signing_ctx.signer(oidc_token) as signer:
-                result = signer.sign(input_=contentio)
+                manifest = Manifest(serialized_paths)
+                result = signer.sign(input_=manifest.to_intoto_statement())
                 with signaturefn.open(mode="w") as b:
-                    print(result.to_bundle().to_json(), file=b)
+                    print(result.to_json(), file=b)
             return SignatureResult()
         except ExpiredIdentity:
             return SignatureResult(success=False,
@@ -143,6 +145,11 @@ class SigstoreVerifier():
             bundle = Bundle().from_json(bundle_bytes)
 
             material: tuple[Path, VerificationMaterials]
+            # TODO: verification
+            # serialized_paths = Serializer.serialize_v2(
+            #     inputfn, chunk_size(), signaturefn, ignorepaths)
+            #     manifest = Manifest(serialized_paths)
+            #     result = signer.sign(input_=manifest.to_intoto_statement())
             contentio = io.BytesIO(Serializer.serialize_v1(
                 inputfn, chunk_size(), signaturefn, ignorepaths))
             material = VerificationMaterials.from_bundle(input_=contentio,
